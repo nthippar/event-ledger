@@ -7,6 +7,29 @@
 # BlueJ files
 *.ctxt
 
+# IntelliJ
+.idea/
+*.iml
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
 
