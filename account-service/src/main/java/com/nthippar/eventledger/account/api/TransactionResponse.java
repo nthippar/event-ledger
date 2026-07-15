@@ -1,0 +1,16 @@
+package com.nthippar.eventledger.account.api;
+
+import com.nthippar.eventledger.account.domain.TransactionType;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+
+public record TransactionResponse(
+        String eventId,
+        String accountId,
+        TransactionType type,
+        BigDecimal amount,
+        String currency,
+        Instant eventTimestamp
+) {
+}
