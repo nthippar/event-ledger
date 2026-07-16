@@ -8,6 +8,7 @@ import com.nthippar.eventledger.event.domain.LedgerEvent;
 import com.nthippar.eventledger.event.error.AccountServiceUnavailableException;
 import com.nthippar.eventledger.event.error.EventNotFoundException;
 import com.nthippar.eventledger.event.mapper.LedgerEventMapper;
+import com.nthippar.eventledger.event.metrics.EventMetrics;
 import com.nthippar.eventledger.event.repository.LedgerEventRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,16 +23,19 @@ public class LedgerEventService {
     private final LedgerEventRepository repository;
     private final LedgerEventMapper mapper;
     private final AccountServiceClient accountServiceClient;
+    private final EventMetrics eventMetrics;
     private static final Logger log = LoggerFactory.getLogger(LedgerEventService.class);
 
     public LedgerEventService(
             LedgerEventRepository repository,
             LedgerEventMapper mapper,
-            AccountServiceClient accountServiceClient
+            AccountServiceClient accountServiceClient,
+            EventMetrics eventMetrics
     ) {
         this.repository = repository;
         this.mapper = mapper;
         this.accountServiceClient = accountServiceClient;
+        this.eventMetrics = eventMetrics;
     }
 
     @Transactional(readOnly = true)
@@ -71,13 +75,20 @@ public class LedgerEventService {
                 mapper.toEntity(request)
         );
 
-        return processEvent(savedEvent, true);
+        EventSubmissionResult result = processEvent(savedEvent, true);
+
+        eventMetrics.recordCreated();
+
+        return result;
     }
 
     private EventSubmissionResult processExistingEvent(
             LedgerEvent existing
     ) {
-        if (existing.getProcessingStatus() == EventProcessingStatus.APPLIED) {
+        if (existing.getProcessingStatus()
+                == EventProcessingStatus.APPLIED) {
+
+            eventMetrics.recordDuplicate();
 
             return new EventSubmissionResult(
                     mapper.toResponse(existing),
@@ -85,7 +96,12 @@ public class LedgerEventService {
             );
         }
 
-        return processEvent(existing, false);
+        EventSubmissionResult result =
+                processEvent(existing, false);
+
+        eventMetrics.recordDuplicate();
+
+        return result;
     }
 
     private EventSubmissionResult processEvent(
@@ -105,6 +121,8 @@ public class LedgerEventService {
         } catch (AccountServiceUnavailableException exception) {
             event.markFailed();
             repository.saveAndFlush(event);
+
+            eventMetrics.recordFailed();
 
             throw exception;
         }

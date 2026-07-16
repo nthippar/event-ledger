@@ -395,6 +395,43 @@ class EventControllerIntegrationTest {
                 .contains("\"eventId\":\"evt-circuit-open\"");
     }
 
+    @Test
+    void shouldExposeEventSubmissionMetrics() throws Exception {
+        sendEvent("""
+            {
+              "eventId": "evt-metric-created",
+              "accountId": "acct-metrics",
+              "type": "CREDIT",
+              "amount": 10.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T14:02:11Z"
+            }
+            """);
+
+        sendEvent("""
+            {
+              "eventId": "evt-metric-created",
+              "accountId": "acct-metrics",
+              "type": "CREDIT",
+              "amount": 10.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T14:02:11Z"
+            }
+            """);
+
+        HttpResponse<String> response = get(
+                "/metrics/event.ledger.events.submitted"
+        );
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body())
+                .contains("\"name\":\"event.ledger.events.submitted\"");
+        assertThat(response.body())
+                .contains("\"tag\":\"result\"");
+        assertThat(response.body())
+                .contains("\"values\":[\"created\",\"duplicate\",\"failed\"]");
+    }
+
     private HttpResponse<String> sendEvent(String body) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/events"))
