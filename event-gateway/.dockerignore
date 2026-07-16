@@ -1,0 +1,7 @@
+.idea
+*.iml
+.git
+.gitignore
+src
+Dockerfile
+*.log
