@@ -6,6 +6,7 @@ import com.nthippar.eventledger.event.client.AccountServiceClient;
 import com.nthippar.eventledger.event.domain.EventProcessingStatus;
 import com.nthippar.eventledger.event.domain.LedgerEvent;
 import com.nthippar.eventledger.event.error.AccountServiceUnavailableException;
+import com.nthippar.eventledger.event.error.ConflictingEventException;
 import com.nthippar.eventledger.event.error.EventNotFoundException;
 import com.nthippar.eventledger.event.mapper.LedgerEventMapper;
 import com.nthippar.eventledger.event.metrics.EventMetrics;
@@ -20,11 +21,13 @@ import java.util.List;
 @Service
 public class LedgerEventService {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(LedgerEventService.class);
+
     private final LedgerEventRepository repository;
     private final LedgerEventMapper mapper;
     private final AccountServiceClient accountServiceClient;
     private final EventMetrics eventMetrics;
-    private static final Logger log = LoggerFactory.getLogger(LedgerEventService.class);
 
     public LedgerEventService(
             LedgerEventRepository repository,
@@ -47,7 +50,8 @@ public class LedgerEventService {
 
     @Transactional(readOnly = true)
     public List<EventResponse> getByAccount(String accountId) {
-        return repository.findByAccountIdOrderByEventTimestampAsc(accountId)
+        return repository
+                .findByAccountIdOrderByEventTimestampAsc(accountId)
                 .stream()
                 .map(mapper::toResponse)
                 .toList();
@@ -64,8 +68,12 @@ public class LedgerEventService {
         );
 
         return repository.findById(request.eventId())
-                .map(this::processExistingEvent)
-                .orElseGet(() -> persistAndProcessNewEvent(request));
+                .map(existing ->
+                        processExistingEvent(existing, request)
+                )
+                .orElseGet(() ->
+                        persistAndProcessNewEvent(request)
+                );
     }
 
     private EventSubmissionResult persistAndProcessNewEvent(
@@ -75,7 +83,8 @@ public class LedgerEventService {
                 mapper.toEntity(request)
         );
 
-        EventSubmissionResult result = processEvent(savedEvent, true);
+        EventSubmissionResult result =
+                processEvent(savedEvent, true);
 
         eventMetrics.recordCreated();
 
@@ -83,8 +92,15 @@ public class LedgerEventService {
     }
 
     private EventSubmissionResult processExistingEvent(
-            LedgerEvent existing
+            LedgerEvent existing,
+            CreateEventRequest request
     ) {
+        if (!matches(existing, request)) {
+            throw new ConflictingEventException(
+                    request.eventId()
+            );
+        }
+
         if (existing.getProcessingStatus()
                 == EventProcessingStatus.APPLIED) {
 
@@ -102,6 +118,21 @@ public class LedgerEventService {
         eventMetrics.recordDuplicate();
 
         return result;
+    }
+
+    private boolean matches(
+            LedgerEvent existing,
+            CreateEventRequest request
+    ) {
+        return existing.getAccountId()
+                .equals(request.accountId())
+                && existing.getType() == request.type()
+                && existing.getAmount()
+                .compareTo(request.amount()) == 0
+                && existing.getCurrency()
+                .equalsIgnoreCase(request.currency())
+                && existing.getEventTimestamp()
+                .equals(request.eventTimestamp());
     }
 
     private EventSubmissionResult processEvent(
