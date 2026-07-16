@@ -77,4 +77,23 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(response);
     }
+
+    @ExceptionHandler(ConflictingEventException.class)
+    public ResponseEntity<ApiErrorResponse> handleConflictingEvent(
+            ConflictingEventException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI(),
+                Map.of()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
 }

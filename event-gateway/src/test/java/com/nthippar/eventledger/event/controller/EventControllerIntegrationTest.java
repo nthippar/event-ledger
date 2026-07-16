@@ -432,6 +432,35 @@ class EventControllerIntegrationTest {
                 .contains("\"values\":[\"created\",\"duplicate\",\"failed\"]");
     }
 
+    @Test
+    void shouldRejectConflictingDuplicateEvent() throws Exception {
+        sendEvent("""
+            {
+              "eventId": "evt-conflict",
+              "accountId": "acct-123",
+              "type": "CREDIT",
+              "amount": 100.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T10:00:00Z"
+            }
+            """);
+
+        HttpResponse<String> response = sendEvent("""
+            {
+              "eventId": "evt-conflict",
+              "accountId": "acct-123",
+              "type": "DEBIT",
+              "amount": 500.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T11:00:00Z"
+            }
+            """);
+
+        assertThat(response.statusCode()).isEqualTo(409);
+        assertThat(response.body())
+                .contains("A different event already exists");
+    }
+
     private HttpResponse<String> sendEvent(String body) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/events"))
