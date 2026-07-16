@@ -242,6 +242,13 @@ GET /metrics/event.ledger.events.submitted
 ```
 
 ---
+### Negative balances
+
+The system permits negative account balances because the requirements
+define the balance as the sum of credits minus the sum of debits.
+Rejecting debits based on the balance at arrival time would make results
+dependent on delivery order and conflict with the out-of-order event
+requirement.
 
 ## Testing
 
