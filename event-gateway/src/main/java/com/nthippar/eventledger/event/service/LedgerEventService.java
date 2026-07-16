@@ -2,11 +2,13 @@ package com.nthippar.eventledger.event.service;
 
 import com.nthippar.eventledger.event.api.CreateEventRequest;
 import com.nthippar.eventledger.event.api.EventResponse;
+import com.nthippar.eventledger.event.client.AccountServiceClient;
+import com.nthippar.eventledger.event.domain.EventProcessingStatus;
 import com.nthippar.eventledger.event.domain.LedgerEvent;
+import com.nthippar.eventledger.event.error.AccountServiceUnavailableException;
 import com.nthippar.eventledger.event.error.EventNotFoundException;
 import com.nthippar.eventledger.event.mapper.LedgerEventMapper;
 import com.nthippar.eventledger.event.repository.LedgerEventRepository;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,13 +19,16 @@ public class LedgerEventService {
 
     private final LedgerEventRepository repository;
     private final LedgerEventMapper mapper;
+    private final AccountServiceClient accountServiceClient;
 
     public LedgerEventService(
             LedgerEventRepository repository,
-            LedgerEventMapper mapper
+            LedgerEventMapper mapper,
+            AccountServiceClient accountServiceClient
     ) {
         this.repository = repository;
         this.mapper = mapper;
+        this.accountServiceClient = accountServiceClient;
     }
 
     @Transactional(readOnly = true)
@@ -41,33 +46,58 @@ public class LedgerEventService {
                 .toList();
     }
 
-    @Transactional
+    @Transactional(
+            noRollbackFor = AccountServiceUnavailableException.class
+    )
     public EventSubmissionResult submit(CreateEventRequest request) {
         return repository.findById(request.eventId())
-                .map(existing -> new EventSubmissionResult(
-                        mapper.toResponse(existing),
-                        false
-                ))
-                .orElseGet(() -> persistNewEvent(request));
+                .map(this::processExistingEvent)
+                .orElseGet(() -> persistAndProcessNewEvent(request));
     }
 
-    private EventSubmissionResult persistNewEvent(CreateEventRequest request) {
-        try {
-            LedgerEvent savedEvent = repository.saveAndFlush(
-                    mapper.toEntity(request)
-            );
+    private EventSubmissionResult persistAndProcessNewEvent(
+            CreateEventRequest request
+    ) {
+        LedgerEvent savedEvent = repository.saveAndFlush(
+                mapper.toEntity(request)
+        );
+
+        return processEvent(savedEvent, true);
+    }
+
+    private EventSubmissionResult processExistingEvent(
+            LedgerEvent existing
+    ) {
+        if (existing.getProcessingStatus() == EventProcessingStatus.APPLIED) {
 
             return new EventSubmissionResult(
-                    mapper.toResponse(savedEvent),
-                    true
+                    mapper.toResponse(existing),
+                    false
             );
-        } catch (DataIntegrityViolationException exception) {
-            return repository.findById(request.eventId())
-                    .map(existing -> new EventSubmissionResult(
-                            mapper.toResponse(existing),
-                            false
-                    ))
-                    .orElseThrow(() -> exception);
+        }
+
+        return processEvent(existing, false);
+    }
+
+    private EventSubmissionResult processEvent(
+            LedgerEvent event,
+            boolean created
+    ) {
+        try {
+            accountServiceClient.applyTransaction(event);
+
+            event.markApplied();
+            repository.saveAndFlush(event);
+
+            return new EventSubmissionResult(
+                    mapper.toResponse(event),
+                    created
+            );
+        } catch (AccountServiceUnavailableException exception) {
+            event.markFailed();
+            repository.saveAndFlush(event);
+
+            throw exception;
         }
     }
 }

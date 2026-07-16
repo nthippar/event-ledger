@@ -37,6 +37,10 @@ public class LedgerEvent {
     @Column(name = "metadata_json", length = 4000)
     private String metadataJson;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "processing_status", nullable = false)
+    private EventProcessingStatus processingStatus;
+
     protected LedgerEvent() {
     }
 
@@ -56,6 +60,7 @@ public class LedgerEvent {
         this.currency = currency;
         this.eventTimestamp = eventTimestamp;
         this.metadataJson = metadataJson;
+        this.processingStatus = EventProcessingStatus.PENDING;
     }
 
     public String getEventId() {
@@ -84,5 +89,17 @@ public class LedgerEvent {
 
     public String getMetadataJson() {
         return metadataJson;
+    }
+
+    public EventProcessingStatus getProcessingStatus() {
+        return processingStatus;
+    }
+
+    public void markApplied() {
+        this.processingStatus = EventProcessingStatus.APPLIED;
+    }
+
+    public void markFailed() {
+        this.processingStatus = EventProcessingStatus.FAILED;
     }
 }

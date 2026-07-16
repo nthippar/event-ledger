@@ -1,5 +1,8 @@
 package com.nthippar.eventledger.event.controller;
 
+import com.nthippar.eventledger.event.client.AccountServiceClient;
+import com.nthippar.eventledger.event.domain.EventProcessingStatus;
+import com.nthippar.eventledger.event.error.AccountServiceUnavailableException;
 import com.nthippar.eventledger.event.repository.LedgerEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -7,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -14,6 +18,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class EventControllerIntegrationTest {
@@ -26,9 +34,15 @@ class EventControllerIntegrationTest {
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
+    @MockitoBean
+    private AccountServiceClient accountServiceClient;
+
     @BeforeEach
     void cleanDatabase() {
         repository.deleteAll();
+
+        when(accountServiceClient.applyTransaction(any()))
+                .thenReturn(null);
     }
 
     @Test
@@ -246,11 +260,124 @@ class EventControllerIntegrationTest {
         assertThat(response.statusCode()).isEqualTo(400);
     }
 
+    @Test
+    void shouldReturn503AndKeepEventWhenAccountServiceIsUnavailable()
+            throws Exception {
+
+        when(accountServiceClient.applyTransaction(any()))
+                .thenThrow(new AccountServiceUnavailableException(
+                        "Account Service is currently unavailable",
+                        new RuntimeException("Connection refused")
+                ));
+
+        HttpResponse<String> response = sendEvent("""
+            {
+              "eventId": "evt-account-down",
+              "accountId": "acct-123",
+              "type": "CREDIT",
+              "amount": 150.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T14:02:11Z"
+            }
+            """);
+
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(response.body())
+                .contains("\"message\":\"Account Service is currently unavailable\"");
+
+        assertThat(repository.count()).isEqualTo(1);
+
+        var storedEvent = repository.findById("evt-account-down")
+                .orElseThrow();
+
+        assertThat(storedEvent.getProcessingStatus())
+                .isEqualTo(EventProcessingStatus.FAILED);
+    }
+
+    @Test
+    void shouldKeepFailedEventReadableFromGateway() throws Exception {
+        when(accountServiceClient.applyTransaction(any()))
+                .thenThrow(new AccountServiceUnavailableException(
+                        "Account Service is currently unavailable",
+                        new RuntimeException("Connection refused")
+                ));
+
+        sendEvent("""
+            {
+              "eventId": "evt-readable-failure",
+              "accountId": "acct-123",
+              "type": "CREDIT",
+              "amount": 50.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T14:02:11Z"
+            }
+            """);
+
+        HttpResponse<String> response = get(
+                "/events/evt-readable-failure"
+        );
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body())
+                .contains("\"eventId\":\"evt-readable-failure\"");
+    }
+
+    @Test
+    void shouldRetryFailedEventOnDuplicateSubmission() throws Exception {
+        when(accountServiceClient.applyTransaction(any()))
+                .thenThrow(new AccountServiceUnavailableException(
+                        "Account Service is currently unavailable",
+                        new RuntimeException("Connection refused")
+                ))
+                .thenReturn(null);
+
+        String requestBody = """
+            {
+              "eventId": "evt-retry",
+              "accountId": "acct-123",
+              "type": "CREDIT",
+              "amount": 150.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T14:02:11Z"
+            }
+            """;
+
+        HttpResponse<String> failedResponse = sendEvent(requestBody);
+        HttpResponse<String> retryResponse = sendEvent(requestBody);
+
+        assertThat(failedResponse.statusCode()).isEqualTo(503);
+        assertThat(retryResponse.statusCode()).isEqualTo(200);
+        assertThat(repository.count()).isEqualTo(1);
+
+        var storedEvent = repository.findById("evt-retry")
+                .orElseThrow();
+
+        assertThat(storedEvent.getProcessingStatus())
+                .isEqualTo(EventProcessingStatus.APPLIED);
+
+        verify(accountServiceClient, times(2))
+                .applyTransaction(any());
+    }
+
     private HttpResponse<String> sendEvent(String body) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/events"))
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        return httpClient.send(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    private HttpResponse<String> get(String path) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(
+                        "http://localhost:" + port + path
+                ))
+                .GET()
                 .build();
 
         return httpClient.send(
