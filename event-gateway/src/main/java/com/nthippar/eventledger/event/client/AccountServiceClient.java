@@ -2,9 +2,11 @@ package com.nthippar.eventledger.event.client;
 
 import com.nthippar.eventledger.event.domain.LedgerEvent;
 import com.nthippar.eventledger.event.error.AccountServiceUnavailableException;
+import com.nthippar.eventledger.event.tracing.TraceConstants;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -83,12 +85,23 @@ public class AccountServiceClient {
             LedgerEvent event,
             AccountTransactionRequest request
     ) {
-        return restClient.post()
+        String traceId = MDC.get(TraceConstants.MDC_TRACE_ID);
+
+        RestClient.RequestBodySpec requestSpec = restClient.post()
                 .uri(
                         "/accounts/{accountId}/transactions",
                         event.getAccountId()
                 )
-                .contentType(MediaType.APPLICATION_JSON)
+                .contentType(MediaType.APPLICATION_JSON);
+
+        if (traceId != null && !traceId.isBlank()) {
+            requestSpec.header(
+                    TraceConstants.TRACE_HEADER,
+                    traceId
+            );
+        }
+
+        return requestSpec
                 .body(request)
                 .retrieve()
                 .body(AccountTransactionResponse.class);

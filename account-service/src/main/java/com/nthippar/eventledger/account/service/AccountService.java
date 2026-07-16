@@ -9,6 +9,8 @@ import com.nthippar.eventledger.account.domain.TransactionType;
 import com.nthippar.eventledger.account.error.ConflictingTransactionException;
 import com.nthippar.eventledger.account.mapper.AccountTransactionMapper;
 import com.nthippar.eventledger.account.repository.AccountTransactionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,7 @@ public class AccountService {
 
     private final AccountTransactionRepository repository;
     private final AccountTransactionMapper mapper;
+    private static final Logger log = LoggerFactory.getLogger(AccountService.class);
 
     public AccountService(
             AccountTransactionRepository repository,
@@ -35,6 +38,11 @@ public class AccountService {
             String accountId,
             ApplyTransactionRequest request
     ) {
+        log.info(
+                "Applying transaction eventId={} accountId={}",
+                request.eventId(),
+                accountId
+        );
         return repository.findById(request.eventId())
                 .map(existing -> handleExistingTransaction(
                         accountId,

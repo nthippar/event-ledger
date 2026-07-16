@@ -16,6 +16,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GatewayAccountIntegrationTest {
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    private static final String TRACE_HEADER = "X-Trace-Id";
+    private static final String TRACE_ID = "trace-e2e-001";
 
     @Test
     void shouldApplyGatewayEventToAccountService() throws Exception {
@@ -35,6 +37,12 @@ class GatewayAccountIntegrationTest {
                         submitEvent(gatewayPort);
 
                 assertThat(eventResponse.statusCode()).isEqualTo(201);
+
+                assertThat(
+                        eventResponse.headers()
+                                .firstValue("X-Trace-Id")
+                ).contains(TRACE_ID);
+
                 assertThat(eventResponse.body())
                         .contains("\"eventId\":\"evt-integration-001\"");
 
@@ -42,6 +50,10 @@ class GatewayAccountIntegrationTest {
                         getBalance(accountPort);
 
                 assertThat(balanceResponse.statusCode()).isEqualTo(200);
+                assertThat(
+                        balanceResponse.headers()
+                                .firstValue("X-Trace-Id")
+                ).contains(TRACE_ID);
                 assertThat(balanceResponse.body())
                         .contains("\"accountId\":\"acct-integration\"");
                 assertThat(balanceResponse.body())
@@ -112,6 +124,7 @@ class GatewayAccountIntegrationTest {
                                 + "/events"
                 ))
                 .header("Content-Type", "application/json")
+                .header(TRACE_HEADER, TRACE_ID)
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
 
@@ -130,6 +143,7 @@ class GatewayAccountIntegrationTest {
                                 + accountPort
                                 + "/accounts/acct-integration/balance"
                 ))
+                .header(TRACE_HEADER, TRACE_ID)
                 .GET()
                 .build();
 
