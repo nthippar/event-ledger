@@ -1,0 +1,28 @@
+services:
+  account-service:
+    build:
+      context: ./account-service
+      dockerfile: Dockerfile
+    container_name: account-service
+    ports:
+      - "8081:8081"
+    networks:
+      - event-ledger-network
+
+  event-gateway:
+    build:
+      context: ./event-gateway
+      dockerfile: Dockerfile
+    container_name: event-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+    depends_on:
+      - account-service
+    networks:
+      - event-ledger-network
+
+networks:
+  event-ledger-network:
+    driver: bridge
