@@ -9,6 +9,8 @@ import com.nthippar.eventledger.event.error.AccountServiceUnavailableException;
 import com.nthippar.eventledger.event.error.EventNotFoundException;
 import com.nthippar.eventledger.event.mapper.LedgerEventMapper;
 import com.nthippar.eventledger.event.repository.LedgerEventRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,7 @@ public class LedgerEventService {
     private final LedgerEventRepository repository;
     private final LedgerEventMapper mapper;
     private final AccountServiceClient accountServiceClient;
+    private static final Logger log = LoggerFactory.getLogger(LedgerEventService.class);
 
     public LedgerEventService(
             LedgerEventRepository repository,
@@ -50,6 +53,12 @@ public class LedgerEventService {
             noRollbackFor = AccountServiceUnavailableException.class
     )
     public EventSubmissionResult submit(CreateEventRequest request) {
+        log.info(
+                "Submitting event eventId={} accountId={}",
+                request.eventId(),
+                request.accountId()
+        );
+
         return repository.findById(request.eventId())
                 .map(this::processExistingEvent)
                 .orElseGet(() -> persistAndProcessNewEvent(request));
