@@ -8,6 +8,7 @@ import com.nthippar.eventledger.event.domain.EventType;
 import com.nthippar.eventledger.event.domain.LedgerEvent;
 import com.nthippar.eventledger.event.error.AccountServiceUnavailableException;
 import com.nthippar.eventledger.event.mapper.LedgerEventMapper;
+import com.nthippar.eventledger.event.metrics.EventMetrics;
 import com.nthippar.eventledger.event.repository.LedgerEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,12 +42,16 @@ class LedgerEventServiceTest {
 
     private LedgerEventService service;
 
+    @Mock
+    private EventMetrics eventMetrics;
+
     @BeforeEach
     void setUp() {
         service = new LedgerEventService(
                 repository,
                 mapper,
-                accountServiceClient
+                accountServiceClient,
+                eventMetrics
         );
     }
 
@@ -80,6 +85,9 @@ class LedgerEventServiceTest {
 
         verify(repository, times(2)).saveAndFlush(entity);
         verify(accountServiceClient).applyTransaction(entity);
+        verify(eventMetrics).recordCreated();
+        verify(eventMetrics, never()).recordDuplicate();
+        verify(eventMetrics, never()).recordFailed();
     }
 
     @Test
@@ -103,8 +111,9 @@ class LedgerEventServiceTest {
         assertThat(result.event()).isEqualTo(response);
 
         verify(repository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any());
-        verify(accountServiceClient, never())
-                .applyTransaction(existing);
+        verify(accountServiceClient, never()).applyTransaction(existing);
+        verify(eventMetrics, never()).recordCreated();
+        verify(eventMetrics, never()).recordFailed();
     }
 
     @Test
@@ -137,6 +146,9 @@ class LedgerEventServiceTest {
 
         verify(repository, times(2)).saveAndFlush(entity);
         verify(accountServiceClient).applyTransaction(entity);
+        verify(eventMetrics).recordFailed();
+        verify(eventMetrics, never()).recordCreated();
+        verify(eventMetrics, never()).recordDuplicate();
     }
 
     @Test
@@ -169,6 +181,8 @@ class LedgerEventServiceTest {
 
         verify(accountServiceClient).applyTransaction(existing);
         verify(repository).saveAndFlush(existing);
+        verify(eventMetrics, never()).recordCreated();
+        verify(eventMetrics, never()).recordFailed();
     }
 
     private CreateEventRequest request(String eventId) {
