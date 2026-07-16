@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.doThrow;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class EventControllerIntegrationTest {
@@ -357,6 +358,41 @@ class EventControllerIntegrationTest {
 
         verify(accountServiceClient, times(2))
                 .applyTransaction(any());
+    }
+
+    @Test
+    void shouldReturn503WhenCircuitBreakerRejectsAccountServiceCall()
+            throws Exception {
+
+        doThrow(new AccountServiceUnavailableException(
+                "Account Service circuit breaker is open",
+                new RuntimeException("Circuit breaker open")
+        ))
+                .when(accountServiceClient)
+                .applyTransaction(any());
+
+        HttpResponse<String> postResponse = sendEvent("""
+            {
+              "eventId": "evt-circuit-open",
+              "accountId": "acct-123",
+              "type": "CREDIT",
+              "amount": 150.00,
+              "currency": "USD",
+              "eventTimestamp": "2026-05-15T14:02:11Z"
+            }
+            """);
+
+        assertThat(postResponse.statusCode()).isEqualTo(503);
+        assertThat(postResponse.body())
+                .contains("Account Service circuit breaker is open");
+
+        HttpResponse<String> getResponse = get(
+                "/events/evt-circuit-open"
+        );
+
+        assertThat(getResponse.statusCode()).isEqualTo(200);
+        assertThat(getResponse.body())
+                .contains("\"eventId\":\"evt-circuit-open\"");
     }
 
     private HttpResponse<String> sendEvent(String body) throws Exception {
