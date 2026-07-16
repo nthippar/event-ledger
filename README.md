@@ -273,7 +273,13 @@ event-ledger
 │
 ├── account-service
 ├── event-gateway
-├── system-tests
 ├── docker-compose.yml
+├── mvnw
+├── mvnw.cmd
+├── pom.xml
 └── README.md
 ```
+
+## License
+
+This project was developed as part of a technical assessment and is intended for evaluation purposes.
